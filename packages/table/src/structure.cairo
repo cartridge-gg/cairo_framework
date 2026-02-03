@@ -8,11 +8,7 @@ pub trait TableStructure {
     const ATTRIBUTES_COUNT: u32;
     const COLUMN_COUNT: u32;
     #[inline(always)]
-    fn serialise_attributes(
-        ref data: Array<felt252>,
-    ) {
-        serialise_data::<_, { [1, 2, 3] }>(ref data);
-    }
+    fn serialise_attributes(ref data: Array<felt252>);
     #[inline(always)]
     fn serialize_primary(ref data: Array<felt252>);
     #[inline(always)]

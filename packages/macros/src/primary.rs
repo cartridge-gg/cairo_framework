@@ -1,6 +1,7 @@
 use crate::{Column, TableError};
 use cairo_syntax_parser::CairoWrite;
-use introspect_macros::{traits::MetaDataTrait, IAttribute, IAttributesTrait, INameTrait};
+use introspect_macros::traits::MetaDataTrait;
+use introspect_macros::{IAttribute, IAttributesTrait, INameTrait};
 use introspect_types::PrimaryTypeDef;
 use std::fmt::{Result as FmtResult, Write};
 
@@ -30,7 +31,7 @@ impl Primary {
         self.cwrite_meta_data(buf)?;
         buf.write_str("]}, ")?;
         self.ty.cwrite(buf)?;
-        buf.write_str(">(data);\n")
+        buf.write_str(">(ref data);\n")
     }
 }
 

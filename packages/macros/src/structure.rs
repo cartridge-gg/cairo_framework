@@ -1,16 +1,15 @@
-use std::fmt::{Result as FmtResult, Write};
-
 use crate::primary::Primary;
 use crate::{Column, TableError, TableResult};
-use cairo_syntax_parser::{CairoWriteSlice, Member};
+use cairo_syntax_parser::{CairoWriteSlice, Member, Struct};
 use introspect_macros::extraction::IExtractablesContext;
 use introspect_macros::IAttribute;
 use introspect_macros::{IAttributesTrait, IExtract};
 use itertools::Itertools;
+use std::fmt::{Result as FmtResult, Write};
 
 #[derive(Clone, Debug)]
 pub enum KeyType {
-    Primary(Primary),
+    Primary(String),
     Custom(usize),
 }
 
@@ -22,7 +21,7 @@ pub struct TableStructure {
     pub columns: Vec<Column>,
     pub attributes: Vec<IAttribute>,
     pub impl_name: String,
-    pub columns_mod_name: String,
+    pub column_mod_name: String,
 }
 
 trait TableMemberTrait {
@@ -54,57 +53,38 @@ impl IExtract for TableStructure {
     fn iextract(item: &mut Self::SyntaxType) -> Result<TableStructure, Self::Error> {
         let mut columns = item.members.iextracts_with(&item.name)?;
         let keys_index = get_keys_index(&columns)?;
+        let name = item.name.clone();
+        let impl_name = format!("{name}Structure");
+        let column_mod_name = format!("{name}Column");
         let key = if keys_index == 1 && item.members[0].is_primary() {
             KeyType::Primary(columns.remove(0).try_into()?)
         } else {
             KeyType::Custom(keys_index)
         };
+
         Ok(TableStructure {
-            name: item.name.clone(),
+            name,
             key,
             attributes: vec![],
             columns,
-            impl_name: struct_impl_name_tpl(&item.name),
-            columns_mod_name: columns_mod_name_tpl(&item.name),
+            impl_name,
+            column_mod_name,
         })
     }
 }
 
 impl TableStructure {
+    pub fn cwrite_column_mods<W: Write>(&self, buf: &mut W, i_path: &str) -> FmtResult {
+        writeln!(buf, "pub mod {} {{", self.columns_mod_name)?;
+        self.columns
+            .iter()
+            .try_for_each(|c| c.cwrite_column_mod(buf))?;
+        buf.write_str("}\n")
+    }
     pub fn cwrite_structure_impl<W: Write>(&self, buf: &mut W, i_path: &str) -> FmtResult {
         let impl_name = &self.impl_name;
-
-        let mut column_defs = Vec::new();
-        let mut member_impls = Vec::new();
-        let mut column_id_consts = Vec::new();
-        let mut tys = Vec::new();
-        let mut serialize_member_calls = Vec::new();
-
-        for column in &self.columns {
-            column_id_consts.push(column.id_const());
-            tys.push(&column.ty);
-            column_defs.push(column.as_element_def_with(i_path, &self.columns_mod_name));
-            member_impls.push(column.member_impl(i_table_path, &self.impl_name));
-            if !column.key {
-                serialize_member_calls.push(column.serialize_member_call::<true>());
-            }
-        }
-        let (primary, key_impls) = match &self.key {
-            KeyType::Primary(p) => (
-                p,
-                record_primary_impl_tpl(i_table_path, &self.name, &self.impl_name, &p.member),
-            ),
-            KeyType::Custom(k) => {
-                let key_impls = match *k {
-                    0 => "".to_string(),
-                    1 => self.get_single_key_impls(i_table_path),
-                    _ => self.get_keyed_impls(i_table_path),
-                };
-                (&default_primary_def(), key_impls)
-            }
-        };
         writeln!(buf, "pub impl {impl_name} of {i_path}::TableStructure {{",)?;
-        writeln!(buf, "type Primary = {};", primary.ty)?;
+        writeln!(buf, "type Primary = {};", self.primary.ty)?;
         self.attributes.cwrite_attribute_count(buf)?;
         writeln!(buf, "const COLUMN_COUNT = {};", self.columns.len())?;
         buf.write_str("fn serialise_attributes(ref data: Array<felt252>) {\n")?;
@@ -112,21 +92,66 @@ impl TableStructure {
         self.attributes
             .cwrite_csv_wrapped_str(buf, "{[", "]}>(ref data);\n")?;
         buf.write_str("fn serialize_primary(ref data: Array<felt252>) {\n")?;
-        primary.cwrite_primary_data(buf, i_path)?;
+        self.primary.cwrite_primary_data(buf, i_path)?;
         buf.write_str("}\n")?;
         buf.write_str(
             "fn serialise_columns(ref table_def: Array<felt252>, ref children: ChildDefs) {\n",
         )?;
+        self.columns
+            .iter()
+            .try_for_each(|c| c.cwrite_column_def(buf, i_path))?;
+        buf.write_str("}\n}\n")
+    }
+
+    pub fn cwrite_member_impls<W: Write>(&self, buf: &mut W, i_path: &str) -> FmtResult {
+        self.columns
+            .iter()
+            .try_for_each(|c| c.cwrite_member_impl(buf, i_path, &self.impl_name))
+    }
+
+    pub fn cwrite_id_impls<W: Write>(&self, buf: &mut W, i_path: &str) -> FmtResult {
+        let name = &self.name;
+        let impl_name = &self.impl_name;
+        match self.key {
+            KeyType::Primary(field) => {
+                writeln!(
+                    buf,
+                    "pub impl {name}RecordPrimary of {i_path}::RecordPrimary<{impl_name}, {name}> {{"
+                )?;
+                writeln!(
+                    buf,
+                    "fn record_id(self: @{name}) -> @{impl_name}::Primary {{"
+                )?;
+                writeln!(buf, "self.{field})")?;
+                buf.write_str("}\n}\n")
+            }
+            KeyType::Custom(size) => {}
+        }
+    }
+
+    pub fn cwrite_values_impls<W: Write>(&self, buf: &mut W, i_path: &str) -> FmtResult {
+        let name = &self.name;
+        let impl_name = &self.impl_name;
+        writeln!(
+            buf,
+            "pub impl {name}RecordValues of {i_path}::RecordValues<{impl_name}, {name}> {{"
+        )?;
+        writeln!(
+            buf,
+            "fn serialize_values(self: @{name}, ref data: Array<felt252>) {{"
+        )?;
+        self.columns
+            .iter()
+            .filter(|c| !c.key)
+            .try_for_each(|c| c.serialize_member_call(buf))?;
+        buf.write_str("}\n}\n")
     }
 
     pub fn get_keyed_impls(&self, i_table_path: &str) -> String {
         let keys = self.columns.iter().filter(|c| c.key).collect::<Vec<_>>();
         let key_types: Vec<_> = keys.iter().map(|c| c.ty.to_cairo()).collect();
         let snapped_key_types = key_types.iter().map(|k| format!("@{k}")).join(",");
-        let serialize_calls = keys
-            .iter()
-            .map(|c| c.serialize_member_call::<false>())
-            .join("\n");
+        let serialize_calls = keys.iter().map(|c| c.serialize_member_call()).join("\n");
         let key_members = keys.iter().map(|c| &c.member).join(",");
         let self_key_members = keys.iter().map(|c| format!("self.{}", c.member)).join(",");
         keyed_impls_tpl(
