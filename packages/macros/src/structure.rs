@@ -1,17 +1,11 @@
+use std::fmt::{Result as FmtResult, Write};
+
 use crate::primary::Primary;
-use crate::templates::{
-    columns_mod_name_tpl, keyed_impls_tpl, record_primary_impl_tpl, single_key_impls_tpl,
-    struct_impl_name_tpl, structure_impls_tpl,
-};
 use crate::{Column, TableError, TableResult};
-use introspect_macros::i_type::extraction::IExtractablesContext;
-use introspect_macros::i_type::{IExtract, ITys};
-use introspect_macros::table::primary::PrimaryTypeDefVariant;
-use introspect_macros::ty::TyItem;
-use introspect_macros::type_def::CairoElementDefWith;
-use introspect_macros::{
-    AsCairoBytes, CairoElementDefs, CairoFormat, IAttribute, Member, Struct, Ty,
-};
+use cairo_syntax_parser::{CairoWriteSlice, Member};
+use introspect_macros::extraction::IExtractablesContext;
+use introspect_macros::IAttribute;
+use introspect_macros::{IAttributesTrait, IExtract};
 use itertools::Itertools;
 
 #[derive(Clone, Debug)]
@@ -24,6 +18,7 @@ pub enum KeyType {
 pub struct TableStructure {
     pub name: String,
     pub key: KeyType,
+    pub primary: Primary,
     pub columns: Vec<Column>,
     pub attributes: Vec<IAttribute>,
     pub impl_name: String,
@@ -37,19 +32,6 @@ trait TableMemberTrait {
 impl TableMemberTrait for Member {
     fn is_primary(&self) -> bool {
         self.ty.is_primary_type()
-    }
-}
-
-fn default_primary_def() -> Primary {
-    Primary {
-        name: "__id".to_string(),
-        member: String::new(),
-        attributes: vec![],
-        ty: Ty::Item(TyItem {
-            name: "felt252".to_string(),
-            params: None,
-        }),
-        type_def: PrimaryTypeDefVariant::Default,
     }
 }
 
@@ -89,12 +71,15 @@ impl IExtract for TableStructure {
 }
 
 impl TableStructure {
-    pub fn get_structure_impl(&self, i_path: &str, i_table_path: &str) -> String {
+    pub fn cwrite_structure_impl<W: Write>(&self, buf: &mut W, i_path: &str) -> FmtResult {
+        let impl_name = &self.impl_name;
+
         let mut column_defs = Vec::new();
         let mut member_impls = Vec::new();
         let mut column_id_consts = Vec::new();
         let mut tys = Vec::new();
         let mut serialize_member_calls = Vec::new();
+
         for column in &self.columns {
             column_id_consts.push(column.id_const());
             tys.push(&column.ty);
@@ -118,22 +103,20 @@ impl TableStructure {
                 (&default_primary_def(), key_impls)
             }
         };
-        structure_impls_tpl(
-            i_path,
-            i_table_path,
-            &self.name,
-            &self.impl_name,
-            &primary.ty.to_cairo(),
-            &primary.name.as_cairo_byte_array(),
-            &primary.attributes.as_element_defs_span(i_path),
-            &primary.type_def.type_def(&primary.ty, i_path),
-            &self.columns_mod_name,
-            &column_id_consts.join("\n"),
-            &column_defs.as_element_defs_span(i_path),
-            &tys.collect_child_defs(i_path),
-            &member_impls.join("\n"),
-            &serialize_member_calls.join("\n"),
-        ) + &key_impls
+        writeln!(buf, "pub impl {impl_name} of {i_path}::TableStructure {{",)?;
+        writeln!(buf, "type Primary = {};", primary.ty)?;
+        self.attributes.cwrite_attribute_count(buf)?;
+        writeln!(buf, "const COLUMN_COUNT = {};", self.columns.len())?;
+        buf.write_str("fn serialise_attributes(ref data: Array<felt252>) {\n")?;
+        write!(buf, "{i_path}::serialise_data::<_,")?;
+        self.attributes
+            .cwrite_csv_wrapped_str(buf, "{[", "]}>(ref data);\n")?;
+        buf.write_str("fn serialize_primary(ref data: Array<felt252>) {\n")?;
+        primary.cwrite_primary_data(buf, i_path)?;
+        buf.write_str("}\n")?;
+        buf.write_str(
+            "fn serialise_columns(ref table_def: Array<felt252>, ref children: ChildDefs) {\n",
+        )?;
     }
 
     pub fn get_keyed_impls(&self, i_table_path: &str) -> String {

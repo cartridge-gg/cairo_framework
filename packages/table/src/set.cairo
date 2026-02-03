@@ -35,7 +35,7 @@ pub trait ColumnSets {
     fn create<
         Set, const SIZE: usize, impl ColumnSet: ColumnSetDefault<Set, SIZE>,
     >() {
-        CreateColumnSet { id: ColumnSet::GROUP_ID, columns: ColumnSet::column_ids() }.emit_event()
+        CreateColumnSet { id: ColumnSet::GROUP_ID, columns: ColumnSet::column_ids() }.emit()
     }
 }
 

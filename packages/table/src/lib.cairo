@@ -10,7 +10,7 @@ pub mod structure;
 pub mod table;
 pub use keyed::{RecordKey, RecordKeySerialized, RecordKeyValue};
 pub use member::Member;
-pub use primary::RecordPrimary;
+pub use primary::{PrimaryTrait, RecordPrimary};
 pub use record::{RecordId, RecordIdSerialized, RecordTrait, RecordValues};
 pub use set::{ColumnSet, ItemColumnSet, ValueColumnSet};
 pub use structure::TableStructure;

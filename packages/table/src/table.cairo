@@ -1,64 +1,41 @@
 use cgg_utils::{ToSnapshotOf, ToSpan};
-use introspect_events::database::selectors::CreateTable;
+use core::array;
+use introspect_events::database::selectors::{CreateTable, InsertField};
 use introspect_events::database::{
     CreateColumnSet, DeleteField, DeleteFields, DeleteRecord, DeleteRecords, DeletesField,
-    DeletesFields, InsertField, InsertsField,
+    DeletesFields, InsertsField,
 };
-use introspect_events::{EmitEvent, emit_ispec_event};
+use introspect_events::{EmitEvent, EmitRawEvent};
 use introspect_types::ChildDefs;
 use crate::field::RecordsField;
 use crate::record::RecordIds;
 use crate::recordable_events::{Emittable, EmittableBatch, EmittableFields, EmittableFieldsBatch};
 use crate::{ColumnSet, Member, RecordId, TableStructure};
 
-
-pub trait Manager {
-    fn register_table<
-        impl Table: ITable<NAME_SIZE, ATTRIBUTES_SIZE>,
-        const NAME_SIZE: u32,
-        const ATTRIBUTES_SIZE: u32,
-    >();
-}
-
-impl ManagerImpl of Manager {
-    fn register_table<
-        impl Table: ITable<NAME_SIZE, ATTRIBUTES_SIZE>,
-        const NAME_SIZE: u32,
-        const ATTRIBUTES_SIZE: u32,
-    >() {}
-}
-
-pub trait TableMetadata<const NAME_SIZE: u32, const ATTRIBUTES_SIZE: u32> {
-    const ID: felt252;
-    const NAME: [felt252; NAME_SIZE];
-    const ATTRIBUTES_COUNT: u32;
-    const ATTRIBUTES: [felt252; ATTRIBUTES_SIZE];
-}
-
-pub trait ITable<const NAME_SIZE: u32, const ATTRIBUTES_SIZE: u32> {
+pub trait ITable {
     impl Table: TableStructure;
     const ID: felt252;
-    const NAME: [felt252; NAME_SIZE];
     const ATTRIBUTES_COUNT: u32;
-    const ATTRIBUTES: [felt252; ATTRIBUTES_SIZE];
     fn name() -> ByteArray;
+    fn serialize_name(ref output: Array<felt252>);
+    fn serialise_attributes(ref data: Array<felt252>);
     fn register_table(
         ref children: ChildDefs,
     ) {
         let mut data: Array<felt252> = Default::default();
         data.append(Self::ID);
-        data.append_span(Self::NAME.span());
-        data.append((Self::ATTRIBUTES_COUNT + Self::Table::ATTRIBUTES_COUNT).into());
-        data.append_span(Self::ATTRIBUTES.span());
-        data.append_span(Self::Table::ATTRIBUTES.span());
-        data.append_span(Self::Table::PRIMARY.span());
+        Self::serialize_name(ref data);
+        data.append(Self::ATTRIBUTES_COUNT.into() + Self::Table::ATTRIBUTES_COUNT.into());
+        Self::serialise_attributes(ref data);
         Self::Table::serialise_attributes(ref data);
-        Self::Table::serialise_structure(ref data);
+        Self::Table::serialize_primary(ref data);
+        Self::Table::serialise_columns(ref data, ref children);
+        CreateTable.emit_event_data(data);
     }
     fn crate_column_set<
         Set, const SIZE: usize, impl ColumnSet: ColumnSet<Self::Table, Set, SIZE>,
     >() {
-        CreateColumnSet { id: ColumnSet::GROUP_ID, columns: ColumnSet::column_ids() }.emit_event()
+        CreateColumnSet { id: ColumnSet::GROUP_ID, columns: ColumnSet::column_ids() }.emit()
     }
     fn insert<Item, impl RE: Emittable<Self::ID, Self::Table, Item>, +Drop<Item>>(
         record: Item,
@@ -82,13 +59,9 @@ pub trait ITable<const NAME_SIZE: u32, const ATTRIBUTES_SIZE: u32> {
     >(
         id: ToId, field: ToField,
     ) {
-        InsertField {
-            table: Self::ID,
-            row: RId::record_id(@id),
-            column: ID,
-            data: Member::serialize_member_inline(SF::to_snapshot(field)),
-        }
-            .emit_event();
+        let mut data = array![Self::ID, RId::record_id(@id), ID];
+        Member::serialize_member(SF::to_snapshot(field), ref data);
+        InsertField.emit_event_data(data);
     }
     fn inserts_field<
         const ID: felt252,
@@ -99,7 +72,7 @@ pub trait ITable<const NAME_SIZE: u32, const ATTRIBUTES_SIZE: u32> {
         items: Items,
     ) {
         let entries = Field::serialise_to_entries(items);
-        InsertsField { table: Self::ID, column: ID, entries }.emit_event();
+        InsertsField { table: Self::ID, column: ID, entries }.emit();
     }
     fn insert_fields<Item, impl RE: EmittableFields<Self::ID, Self::Table, Item>, +Drop<Item>>(
         record: Item,
@@ -117,12 +90,12 @@ pub trait ITable<const NAME_SIZE: u32, const ATTRIBUTES_SIZE: u32> {
     fn delete_record<ToId, impl RID: RecordId<Self::Table, ToId>, +Drop<ToId>>(
         id: ToId,
     ) {
-        DeleteRecord { table: Self::ID, row: RID::record_id(@id) }.emit_event();
+        DeleteRecord { table: Self::ID, row: RID::record_id(@id) }.emit();
     }
     fn delete_records<ToIds, impl Ids: RecordIds<Self::Table, ToIds>, +Drop<ToIds>>(
         ids: ToIds,
     ) {
-        DeleteRecords { table: Self::ID, rows: Ids::record_ids(ids) }.emit_event();
+        DeleteRecords { table: Self::ID, rows: Ids::record_ids(ids) }.emit();
     }
     fn delete_field<
         const COLUMN_ID: felt252,
@@ -133,7 +106,7 @@ pub trait ITable<const NAME_SIZE: u32, const ATTRIBUTES_SIZE: u32> {
     >(
         id: ToId,
     ) {
-        DeleteField { table: Self::ID, row: RID::record_id(@id), column: COLUMN_ID }.emit_event();
+        DeleteField { table: Self::ID, row: RID::record_id(@id), column: COLUMN_ID }.emit();
     }
     fn deletes_field<
         const COLUMN_ID: felt252,
@@ -143,8 +116,7 @@ pub trait ITable<const NAME_SIZE: u32, const ATTRIBUTES_SIZE: u32> {
     >(
         ids: ToIds,
     ) {
-        DeletesField { table: Self::ID, rows: TID::record_ids(ids), column: COLUMN_ID }
-            .emit_event();
+        DeletesField { table: Self::ID, rows: TID::record_ids(ids), column: COLUMN_ID }.emit();
     }
     fn delete_fields<
         ToId,
@@ -157,7 +129,7 @@ pub trait ITable<const NAME_SIZE: u32, const ATTRIBUTES_SIZE: u32> {
         id: ToId, columns: ColumnIds,
     ) {
         DeleteFields { table: Self::ID, row: Id::record_id(@id), columns: columns.to_span() }
-            .emit_event();
+            .emit();
     }
     fn deletes_fields<
         ToIds,
@@ -169,6 +141,6 @@ pub trait ITable<const NAME_SIZE: u32, const ATTRIBUTES_SIZE: u32> {
         ids: ToIds, columns: ColumnIds,
     ) {
         DeletesFields { table: Self::ID, rows: Ids::record_ids(ids), columns: columns.to_span() }
-            .emit_event();
+            .emit();
     }
 }

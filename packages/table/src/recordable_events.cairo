@@ -32,7 +32,7 @@ pub impl EmittableRecord<
 > of Emittable<TABLE_ID, Struct, Item> {
     fn emit_item(item: @Item) {
         let (row, data) = Record::record_tuple(item);
-        InsertRecord { table: TABLE_ID, row, data }.emit_event();
+        InsertRecord { table: TABLE_ID, row, data }.emit();
     }
 }
 
@@ -45,7 +45,7 @@ pub impl EmittableRecordBatch<
 > of EmittableBatch<TABLE_ID, Struct, Items> {
     fn emit_batch(items: Items) {
         let entries = Records::serialize_records(items);
-        InsertRecords { table: TABLE_ID, entries }.emit_event();
+        InsertRecords { table: TABLE_ID, entries }.emit();
     }
 }
 
@@ -58,7 +58,7 @@ pub impl EmittableColumnSet<
 > of Emittable<TABLE_ID, Struct, Item> {
     fn emit_item(item: @Item) {
         let (row, data) = Set::set_tuple(item);
-        InsertFieldSet { table: TABLE_ID, set: Set::GROUP_ID, row, data }.emit_event();
+        InsertFieldSet { table: TABLE_ID, set: Set::GROUP_ID, row, data }.emit();
     }
 }
 
@@ -73,7 +73,7 @@ pub impl EmittableColumnSetBatch<
 > of EmittableBatch<TABLE_ID, Struct, Items> {
     fn emit_batch(items: Items) {
         let entries = Set::serialise_rows_set(items);
-        InsertsFieldSet { table: TABLE_ID, set: Set::GROUP_ID, entries }.emit_event();
+        InsertsFieldSet { table: TABLE_ID, set: Set::GROUP_ID, entries }.emit();
     }
 }
 
@@ -86,7 +86,7 @@ pub impl EmittableFieldsImpl<
 > of EmittableFields<TABLE_ID, Struct, Item> {
     fn emit_fields(item: @Item) {
         let (row, data) = Set::set_tuple(item);
-        InsertFields { table: TABLE_ID, columns: Set::column_ids(), row, data }.emit_event();
+        InsertFields { table: TABLE_ID, columns: Set::column_ids(), row, data }.emit();
     }
 }
 
@@ -101,7 +101,7 @@ pub impl EmittableFieldsBatchImpl<
 > of EmittableFieldsBatch<TABLE_ID, Struct, Items> {
     fn emit_fields_batch(items: Items) {
         let entries = Set::serialise_rows_set(items);
-        InsertsFields { table: TABLE_ID, columns: Set::column_ids(), entries }.emit_event();
+        InsertsFields { table: TABLE_ID, columns: Set::column_ids(), entries }.emit();
     }
 }
 

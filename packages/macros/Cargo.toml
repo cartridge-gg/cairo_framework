@@ -9,9 +9,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 cairo-lang-macro.workspace = true
-cairo-lang-parser.workspace = true
-cairo-lang-syntax.workspace = true
-cairo-lang-starknet-classes.workspace = true
+cairo-syntax-parser.workspace = true
 salsa = "0.24.0"
 thiserror.workspace = true
 indent.workspace = true

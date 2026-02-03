@@ -1,8 +1,8 @@
 use cgg_utils::{AsSnapshot, SnapForwardTo, ToSnapshotOf, ToSpan};
-use introspect_types::{Entry, PrimaryTrait};
+use introspect_types::Entry;
 use crate::keyed::RecordKey;
 use crate::set::SetRecordId;
-use crate::{RecordPrimary, TableStructure};
+use crate::{PrimaryTrait, RecordPrimary, TableStructure};
 
 pub trait RecordTrait<impl Table: TableStructure, AsRecord> {
     fn serialize_record(self: @AsRecord, ref data: Array<felt252>) -> felt252;

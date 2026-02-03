@@ -4,18 +4,16 @@ use crate::templates::{
     serialize_member_call_tpl, serialize_struct_member_call_tpl,
 };
 use crate::{TableError, TableResult};
+use cairo_syntax_parser::{Attribute, Member};
 use introspect_macros::i_type::attribute::ExtractAttributes;
 use introspect_macros::i_type::extraction::IExtractWith;
 use introspect_macros::i_type::{
     AttributeParser, AttributeVariant, TypeDefVariant, TypeMod, TypeModMemberTrait, TypeModTrait,
 };
-use introspect_macros::table::column::column_def_tpl;
-use introspect_macros::type_def::CairoElementDefWith;
-use introspect_macros::utils::{Quoted, string_to_keccak_hex};
-use introspect_macros::{
-    AttributesTrait, CairoElementDefs, CairoFormat, IAttribute, IntrospectError, Member, Ty,
-};
+use introspect_macros::utils::string_to_keccak_hex;
+use introspect_macros::{IAttribute, IntrospectError};
 use introspect_rust_macros::macro_attributes;
+
 #[derive(Debug, Clone)]
 pub struct Column {
     pub id: String,
@@ -24,7 +22,7 @@ pub struct Column {
     pub member: String,
     pub selector: String,
     pub attributes: Vec<IAttribute>,
-    pub ty: Ty,
+    pub ty: String,
     pub type_def: TypeDefVariant,
     pub member_impl_name: String,
 }
@@ -56,7 +54,7 @@ impl AttributeParser<Member> for ColumnAttributes {
     fn parse_attribute(
         &mut self,
         _module: &mut Member,
-        attribute: introspect_macros::Attribute,
+        attribute: Attribute,
     ) -> TableResult<Vec<AttributeVariant>> {
         if let Some(r) = self.extract_type_mod_return_empty(&attribute) {
             return r.map_err(From::from);

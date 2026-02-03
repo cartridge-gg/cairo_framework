@@ -1,15 +1,44 @@
-use introspect_macros::table::PrimaryTypeDefVariant;
-use introspect_macros::{IAttribute, Ty};
-
 use crate::{Column, TableError};
+use cairo_syntax_parser::CairoWrite;
+use introspect_macros::{traits::MetaDataTrait, IAttribute, IAttributesTrait, INameTrait};
+use introspect_types::PrimaryTypeDef;
+use std::fmt::{Result as FmtResult, Write};
 
 #[derive(Clone, Debug)]
 pub struct Primary {
     pub name: String,
-    pub member: String,
     pub attributes: Vec<IAttribute>,
-    pub ty: Ty,
+    pub ty: String,
     pub type_def: PrimaryTypeDefVariant,
+}
+
+impl IAttributesTrait for Primary {
+    fn iattributes(&self) -> &[IAttribute] {
+        &self.attributes
+    }
+}
+
+impl INameTrait for Primary {
+    fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+impl Primary {
+    pub fn cwrite_primary_data<W: Write>(&self, buf: &mut W, i_path: &str) -> FmtResult {
+        write!(buf, "{i_path}::serialize_primary::<_, {{[")?;
+        self.cwrite_meta_data(buf)?;
+        buf.write_str("]}, ")?;
+        self.ty.cwrite(buf)?;
+        buf.write_str(">(data);\n")
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum PrimaryTypeDefVariant {
+    Default,
+    TypeDef(PrimaryTypeDef),
+    Fn(String),
 }
 
 // impl IExtract for Primary {
@@ -32,7 +61,6 @@ impl TryFrom<Column> for Primary {
     fn try_from(column: Column) -> Result<Self, Self::Error> {
         Ok(Primary {
             name: column.name,
-            member: column.member,
             attributes: column.attributes,
             ty: column.ty,
             type_def: column.type_def.try_into()?,
